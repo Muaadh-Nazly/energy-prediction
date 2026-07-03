@@ -4,5 +4,6 @@ __pycache__/
 .ipynb_checkpoints/
 models/*.h5
 models/*.pt
+models/*.pth
 models/random_forest.pkl
 .DS_Store
