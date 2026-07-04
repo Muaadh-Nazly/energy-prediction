@@ -1,0 +1,9 @@
+model,MAE,RMSE,MAPE,R2
+GRU (engineered v2: interactions + trimmed + composites),17.1842,25.7658,21.7485,0.5509
+"ARIMA(2,1,2) one-step-ahead",13.3717,21.6352,17.3132,0.6864
+"XGBoost (flat, 32 features)",14.0911,21.3218,18.4865,0.6955
+GRU (tuned hyperparameters),16.7703,24.9641,21.3771,0.5784
+Stacked (LR + GRU-on-residuals),13.4508,21.0623,17.1777,0.6999
+Linear Regression (log target),13.7459,22.887,17.6045,0.6491
+GRU (log target),16.0255,25.3911,19.2192,0.5639
+GRU (+ lagged exogenous sensors),17.1016,25.4197,21.7298,0.5629

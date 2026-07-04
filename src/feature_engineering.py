@@ -415,3 +415,55 @@ def save_processed_data(df, filepath, decimals=4):
     numeric_cols = df_rounded.select_dtypes(include=[np.number]).columns
     df_rounded[numeric_cols] = df_rounded[numeric_cols].round(decimals)
     df_rounded.to_csv(filepath, index=True)
+
+
+def add_lag_interaction_features(df):
+    """
+    Create interaction terms between Appliances_lag1 and time-of-day /
+    weekday-weekend indicators, to let models capture whether short-term
+    usage persistence differs across the day or by day type. This targets
+    nonlinear structure that a linear model cannot represent without the
+    interaction being explicitly supplied.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain Appliances_lag1, hour_sin, hour_cos, week_status.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of df with lag1_x_hour_sin, lag1_x_hour_cos, lag1_x_is_weekend added.
+    """
+    df = df.copy()
+    df["lag1_x_hour_sin"] = df["Appliances_lag1"] * df["hour_sin"]
+    df["lag1_x_hour_cos"] = df["Appliances_lag1"] * df["hour_cos"]
+    df["is_weekend"] = (df["week_status"] == "Weekend").astype(int)
+    df["lag1_x_is_weekend"] = df["Appliances_lag1"] * df["is_weekend"]
+    return df
+
+
+def add_indoor_climate_composites(df):
+    """
+    Create composite indoor temperature and humidity features by averaging
+    across room sensors, excluding T6/RH_6 since EDA identified T6 as
+    outdoor-adjacent rather than a true indoor reading. Reduces
+    multicollinearity among T1-T9/RH_1-9 while preserving indoor climate
+    signal as a single domain feature.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        Must contain T1-T5, T7-T9, RH_1-RH_5, RH_7-RH_9.
+
+    Returns
+    -------
+    pd.DataFrame
+        Copy of df with mean_indoor_temp and mean_indoor_rh added.
+    """
+    df = df.copy()
+    indoor_temp_cols = ["T1", "T2", "T3", "T4", "T5", "T7", "T8", "T9"]
+    indoor_rh_cols = ["RH_1", "RH_2", "RH_3", "RH_4", "RH_5", "RH_7", "RH_8", "RH_9"]
+    df["mean_indoor_temp"] = df[indoor_temp_cols].mean(axis=1)
+    df["mean_indoor_rh"] = df[indoor_rh_cols].mean(axis=1)
+    return df

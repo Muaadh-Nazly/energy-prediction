@@ -16,6 +16,26 @@ from torch.utils.data import Dataset, DataLoader
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 
 
+def set_seed(seed=42):
+    """
+    Set random seeds across random, numpy, and torch (CPU/CUDA) so that
+    weight initialization and DataLoader shuffling are reproducible given
+    the same seed. Called at the start of train_torch_model.
+
+    Parameters
+    ----------
+    seed : int, default 42
+        Seed value applied to random, numpy, and torch RNGs.
+    """
+    import random
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
 def train_sklearn_model(model, X_train, y_train):
     """
     Fit a scikit-learn-compatible model on training data.
@@ -247,6 +267,7 @@ def train_torch_model(
     loss_fn=None,
     device=None,
     verbose=True,
+    seed=42,
 ):
     """
     Train a PyTorch sequence model with Adam, Cosine Annealing LR
@@ -279,6 +300,9 @@ def train_torch_model(
         "cuda" or "cpu". Defaults to auto-detect.
     verbose : bool, default True
         Whether to print progress every 5 epochs.
+    seed : int, default 42
+        Random seed applied to numpy/torch RNGs and the training
+        DataLoader's shuffle order, for reproducible runs.
 
     Returns
     -------
@@ -288,12 +312,19 @@ def train_torch_model(
         {"train_loss": [...], "val_loss": [...]} per-epoch history, for
         plotting learning curves in the notebook.
     """
+    set_seed(seed)
     device = device or get_device()
     model = model.to(device)
     loss_fn = loss_fn or nn.HuberLoss()
 
+    generator = torch.Generator()
+    generator.manual_seed(seed)
+
     train_loader = DataLoader(
-        SequenceDataset(X_train_seq, y_train_seq), batch_size=batch_size, shuffle=True
+        SequenceDataset(X_train_seq, y_train_seq),
+        batch_size=batch_size,
+        shuffle=True,
+        generator=generator,
     )
     val_loader = DataLoader(
         SequenceDataset(X_val_seq, y_val_seq), batch_size=batch_size, shuffle=False
@@ -457,6 +488,7 @@ def run_window_sweep(
     model_kwargs=None,
     device=None,
     verbose=True,
+    seed=42,
 ):
     """
     Lightweight sweep: trains one architecture at each candidate window
@@ -515,6 +547,7 @@ def run_window_sweep(
             batch_size=batch_size,
             device=device,
             verbose=False,
+            seed=42,
         )
         best_val = min(history["val_loss"])
         results[window] = round(best_val, 6)
