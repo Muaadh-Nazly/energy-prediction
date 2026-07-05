@@ -1,7 +1,7 @@
 # Appliance Energy Prediction
 ### Multivariate Time-Series Deep Learning - Take-Home Assessment
 
-**Author:** [Your Name]
+**Author:** Muaadh Nazly
 **Date:** 2026-07-04
 **Assessment by:** Intrinsic Tech
 
