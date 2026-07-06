@@ -1,21 +1,21 @@
 model,MAE,RMSE,MAPE,R2,window
-Stacked (LR + GRU-on-residuals),13.4508,21.0623,17.1777,0.6999,
-Linear Regression,13.5083,21.3023,17.6123,0.696,
-"XGBoost (flat, 32 features)",14.0911,21.3218,18.4865,0.6955,
+Stacked (LR + CNN-LSTM-on-residuals),13.5223,21.0804,17.7902,0.7001,
+Linear Regression,13.596,21.2454,17.7672,0.6976,
 "ARIMA(2,1,2) one-step-ahead",13.3717,21.6352,17.3132,0.6864,
-Linear Regression (log target),13.7459,22.887,17.6045,0.6491,
-Random Forest,16.5427,23.183,21.9287,0.64,
-GRU (tuned hyperparameters),16.7703,24.9641,21.3771,0.5784,
-GRU (batch_size=32),16.5431,25.1229,20.4552,0.573,
-GRU (log target),16.0255,25.3911,19.2192,0.5639,
-GRU (+ lagged exogenous sensors),17.1016,25.4197,21.7298,0.5629,
-GRU (dropout=0.2),17.4716,25.5703,22.6862,0.5577,
-GRU (Huber),17.7092,25.66,23.0048,0.5546,
-GRU (engineered v2: interactions + trimmed + composites),17.1842,25.7658,21.7485,0.5509,
-gru,17.4023,25.7704,21.9957,0.5507,24.0
-cnn_lstm,18.3481,25.9521,24.4941,0.5444,24.0
-GRU (extended patience),17.8904,26.0043,23.0748,0.5425,
-GRU (MSE),17.945,26.0327,23.2056,0.5415,
-lstm,17.4519,26.1027,22.2679,0.5391,24.0
-cnn_lstm_attention,18.0691,26.1678,23.5572,0.5368,24.0
-tcn,19.545,27.3298,26.1866,0.4947,24.0
+Linear Regression (log target),13.702,22.6933,17.5608,0.655,
+"XGBoost (flat, 32 features)",16.4492,22.7804,22.2317,0.6524,
+CNN-LSTM (log target),16.1775,25.3026,19.6337,0.568,
+CNN-LSTM (MSE),16.4295,25.4112,20.3116,0.5642,
+CNN-LSTM (extended patience),17.8431,25.7924,23.4158,0.5511,
+CNN-LSTM (batch_size=128),17.6931,26.0851,22.4785,0.5408,
+CNN-LSTM (engineered v2: interactions + trimmed + composites),18.6042,26.2507,24.8753,0.535,
+CNN-LSTM (dropout=0.1),17.841,26.35,23.1255,0.5314,
+cnn_lstm,19.8555,26.8732,27.1462,0.5127,72.0
+CNN-LSTM (Huber),16.9411,27.0698,19.6744,0.5055,
+CNN-LSTM (+ lagged exogenous sensors),21.0581,27.4901,29.7005,0.49,
+CNN-LSTM (tuned hyperparameters),20.6963,27.6099,28.3514,0.4856,
+Random Forest,20.7375,27.7119,27.2843,0.4856,
+lstm,20.4271,28.1096,27.9723,0.4668,72.0
+tcn,20.7477,28.1787,28.4109,0.4628,24.0
+gru,21.6285,28.8777,29.9177,0.4372,72.0
+cnn_lstm_attention,21.9499,29.6336,29.9925,0.406,24.0

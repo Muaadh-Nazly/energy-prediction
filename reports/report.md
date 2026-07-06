@@ -2,7 +2,7 @@
 title: "Appliance Energy Prediction"
 subtitle: "Multivariate Time-Series Deep Learning - Take-Home Assessment"
 author: "Muaadh Nazly"
-date: "2026-07-05"
+date: "2026-07-06"
 geometry: margin=1in
 fontsize: 11pt
 toc: true
@@ -16,6 +16,8 @@ urlcolor: blue
 \newpage
 
 # Introduction
+
+**Repository:** https://github.com/Muaadh-Nazly/energy-prediction
 
 This report covers the full pipeline built to predict household appliance
 energy consumption (`Appliances`, measured in Wh) using the UCI Appliance
@@ -44,13 +46,16 @@ The work is spread across five notebooks and a shared `src/` library:
 
 Before going further, it would be better to be upfront about the headline result because
 it isn't the one someone would expect from a brief that's framed entirely around
-deep learning; In this process, Linear Regression beats every deep learning architecture that was
-trained, and the strongest model overall turned out to be a hybrid of
-Linear Regression and a GRU. Section 8 walks through the tests ran to
-check whether that gap is something which could still fix, or whether it's a
-genuine limit set by the data itself. Section 10 explains why that
-finding, and the way it was investigated, which is actually the most useful result
-this assessment produced.
+deep learning: Linear Regression beats every standalone deep learning
+architecture that was trained, by a wide margin, and closes almost all of
+the remaining gap to a simple univariate ARIMA model with no feature
+engineering at all. Only a hybrid built specifically to learn what
+Linear Regression gets wrong, a CNN-LSTM trained on its residuals, edges
+past it, and only by a small margin. Section 8 walks through the tests
+ran to check whether that gap is something which could still fix, or
+whether it's a genuine limit set by the data itself. Section 10 explains
+why that finding, and the way it was investigated, is actually the most
+useful result this assessment produced.
 
 \newpage
 
@@ -326,7 +331,7 @@ redundancy or noise:
 | 1 | Zero-signal removal (`rv1`, `rv2`) | 50 -> 48 |
 | 2 | Pairwise correlation redundancy (threshold 0.95) | 48 -> 46 |
 | 3 | Random Forest impurity importance (ranking only) | 46 -> 46 |
-| 4 | Permutation importance on held-out validation data | 46 -> 32 |
+| 4 | Permutation importance on held-out validation data | 46 -> 36 |
 
 Stage 2 dropped exactly two redundant pairs: `T_out`/`T6` (correlation
 0.975, confirming `T6`'s outdoor-adjacent nature from the EDA) and
@@ -343,21 +348,28 @@ second tier below it. `Press_mm_hg` ranked surprisingly high, in the top
 
 Stage 4, permutation importance, exists specifically because impurity-based
 importance is known to favor high-cardinality, continuous features. It
-confirmed `Appliances_lag1` (about 0.55) and `Appliances_roll6_mean`
-(about 0.10) as the two real drivers, with `hour_cos` a distant but genuine
-third (about 0.03). It also settled the `Press_mm_hg` question, that once
-measured by actual held-out performance rather than tree impurity, it fell
-out of the top 20 entirely, confirming its Stage 3 ranking was an
-artifact rather than real signal.
+measures importance on a validation split carved from the training data,
+not the test set, an important correction covered below. It confirmed
+`Appliances_lag1` (about 0.79) and `Appliances_roll6_mean` (about 0.025)
+as the two real drivers, with a steep drop-off after that. It also
+settled the `Press_mm_hg` question: once measured by actual held-out
+performance rather than tree impurity, it fell out of the top 20
+entirely, confirming its Stage 3 ranking was an artifact rather than
+real signal.
 
 ![Permutation importance](figures/10_permutation_importance.png){width=90%}
 
-The final set of 32 features is dominated by `Appliances` lag and rolling
-features (11 of the 32), humidity sensors (`RH_1` through `RH_9` plus
-`RH_out`, 8 features total), the two interaction terms, cyclical and
-temporal features, and a handful of raw sensors (`T4`, `T8`, `Tdewpoint`,
-`Press_mm_hg`, `Windspeed`, `lights`). The full list is saved in
-`data/processed/selected_features.txt`.
+Stage 4 measures importance on a validation split carved from training
+data specifically to keep the test set fully held out until final model
+evaluation (see Challenges and Solutions for why this mattered enough to
+call out separately).
+
+The final set of 36 features is dominated by `Appliances` lag and rolling
+features (11 of the 36), humidity and temperature sensors (`RH_1` through
+`RH_9`, `RH_out`, and six of the `T1`-`T9` room sensors, 15 features
+total), the two interaction terms, cyclical and temporal features, and a
+handful of remaining raw sensors (`Tdewpoint`, `Press_mm_hg`, `Visibility`,
+`lights`). The full list is saved in `data/processed/selected_features.txt`.
 
 \newpage
 
@@ -377,7 +389,7 @@ comparable.
 All five deep learning models are built in PyTorch (`src/model.py`) and
 share the same building blocks through a single `get_model()` function.
 
-Each takes a sequence of the 32 selected features over some window of past
+Each takes a sequence of the 36 selected features over some window of past
 time steps, with the window length chosen empirically (see Model
 Optimization).
 
@@ -421,11 +433,12 @@ LSTM's final hidden state the way CNN-LSTM does.
 ## The Hybrid Model Found During Optimization
 
 There's a sixth configuration that wasn't part of the original five
-architectures but ended up being the best performer overall. Linear
-Regression, followed by a GRU trained on Linear Regression's residuals,
-with both predictions combined at inference time. Its design and
-results are fully explained in Model Optimization and Results, since it came out of the
-optimization phase rather than the initial design.
+architectures: Linear Regression, followed by a CNN-LSTM trained on
+Linear Regression's residuals, with both predictions combined at
+inference time. This turns out to be the best performer overall, edging
+out Linear Regression alone. Its design and results are fully explained
+in Model Optimization and Results, since it came out of the optimization
+phase rather than the initial design.
 
 \newpage
 
@@ -437,11 +450,12 @@ optimization phase rather than the initial design.
 
 | Model | MAE (Wh) | RMSE (Wh) | MAPE (%) | R2 |
 |---|---|---|---|---|
-| Linear Regression | 13.51 | 21.30 | 17.61 | 0.696 |
-| Random Forest | 16.54 | 23.18 | 21.93 | 0.640 |
+| Linear Regression | 13.60 | 21.25 | 17.77 | 0.698 |
+| Random Forest | 20.74 | 27.71 | 27.28 | 0.486 |
 
-Linear Regression wins outright here. The guess is that Random Forest's
-default tree depth overfits on the 31 secondary features surrounding the
+Linear Regression wins outright here. Random Forest's default tree depth
+appears more sensitive to the feature set's raw sensor columns than
+Linear Regression's coefficients are, which lean almost entirely on the
 one dominant predictor, `Appliances_lag1`.
 
 ## Deep Learning Comparison
@@ -450,48 +464,50 @@ one dominant predictor, `Appliances_lag1`.
 
 | Model | MAE (Wh) | RMSE (Wh) | MAPE (%) | R2 | Window |
 |---|---|---|---|---|---|
-| GRU | 17.40 | 25.77 | 22.00 | 0.551 | 24 |
-| CNN-LSTM | 18.35 | 25.95 | 24.49 | 0.544 | 24 |
-| LSTM | 17.45 | 26.10 | 22.27 | 0.539 | 24 |
-| CNN-LSTM with Attention | 18.07 | 26.17 | 23.56 | 0.537 | 24 |
-| TCN | 19.55 | 27.33 | 26.19 | 0.495 | 24 |
+| CNN-LSTM | 19.86 | 26.87 | 27.15 | 0.513 | 72 |
+| LSTM | 20.43 | 28.11 | 27.97 | 0.467 | 72 |
+| TCN | 20.75 | 28.18 | 28.41 | 0.463 | 24 |
+| GRU | 21.63 | 28.88 | 29.92 | 0.437 | 72 |
+| CNN-LSTM with Attention | 21.95 | 29.63 | 29.99 | 0.406 | 24 |
 
-All five architectures independently settled on a 24-step (4-hour) window
-as their best choice during the sweep phase, out of candidates 24, 72, and
-144 steps. That agreement across all five models is a useful confirmation
-on its own. The learning curves show healthy convergence for every
+Three architectures (CNN-LSTM, LSTM, GRU) picked a 72-step (12-hour)
+window as best during the sweep, while TCN and CNN-LSTM with Attention
+picked 24 steps. The learning curves show healthy convergence for every
 architecture, where training loss decreases steadily, validation loss
-flattens out, and early stopping triggers in before anything diverges. There's
-no overfitting problem here. The gap between train and validation loss
-stays small the whole time, which tells these models are underfitting
-the signal that Linear Regression already picks up directly, rather than
-overfitting or training badly.
+flattens out, and early stopping triggers before anything diverges.
+There's no overfitting problem here. The gap between train and
+validation loss stays small the whole time, which tells these models are
+underfitting the signal that Linear Regression already picks up
+directly, rather than overfitting or training badly.
 
-GRU is the strongest deep learning model of the five, but every single one
-of them falls short of both baselines.
+CNN-LSTM is the strongest deep learning model of the five. Every
+architecture falls well short of both baselines.
 
 ## Residual Diagnostics
 
 ![Residual diagnostics for Linear Regression](figures/13_residual_diagnostics_lr.png){width=95%}
 
-![Residual diagnostics for GRU](figures/14_residual_diagnostics_gru.png){width=95%}
+![Residual diagnostics for CNN-LSTM](figures/14_residual_diagnostics_cnn_lstm.png){width=95%}
 
 Both models show the same kind of error pattern. Residuals track well in
 the 50 to 120 Wh range where most of the data sits, overpredict at the low
 end (roughly 20 to 40 Wh), and underpredict at the high end (150 Wh and
-above), which is a direct consequence of the target's skew. GRU's residual
-spread is visibly wider than Linear Regression's, matching its higher
-RMSE, but the shape of the error is the same for both. The deep model
-isn't failing differently, it's failing the same way, just by more.
+above), which is a direct consequence of the target's skew. CNN-LSTM's
+residual spread is visibly wider than Linear Regression's, matching its
+much higher RMSE, and its histogram sits noticeably left of zero rather
+than centered on it, a clearer negative bias on top of the wider spread.
+The overall shape of the error is still the same for both models,
+CNN-LSTM isn't failing differently, it's failing more, and more
+one-sidedly.
 
 ## Attention Weight Interpretation
 
 ![Attention weights across the 24-step window](figures/15_attention_weights.png){width=90%}
 
 Attention concentrates heavily on the single most recent time step. The
-average weight sits at 0.165 for the step right before the prediction,
-compared to roughly 0.01 to 0.03 for the oldest steps in the window, and
-the most recent step is the single most-attended position in 132 of 200
+average weight sits at 0.179 for the step right before the prediction,
+compared to well under 0.01 for the oldest steps in the window, and
+the most recent step is the single most-attended position in 156 of 200
 sampled test sequences. This lines up with the AR(1)-like structure behind
 `Appliances_lag1`'s dominance throughout this project, and it matches the
 finding that the shortest candidate window (24 steps) beat the longer
@@ -503,38 +519,39 @@ analysis predicted back in the Data Insights section.
 
 | Model | MAE | RMSE | R2 |
 |---|---|---|---|
-| Stacked (Linear Regression + GRU on residuals) | 13.45 | 21.06 | 0.700 |
-| Linear Regression | 13.51 | 21.30 | 0.696 |
-| XGBoost (32 features) | 14.09 | 21.32 | 0.696 |
+| Stacked (Linear Regression + CNN-LSTM on residuals) | 13.52 | 21.08 | 0.700 |
+| Linear Regression | 13.60 | 21.25 | 0.698 |
 | ARIMA(2,1,2) | 13.37 | 21.64 | 0.686 |
-| Linear Regression (log target) | 13.75 | 22.89 | 0.649 |
-| Random Forest | 16.54 | 23.18 | 0.640 |
-| GRU (tuned hyperparameters) | 16.77 | 24.96 | 0.578 |
-| GRU (batch_size=32) | 16.54 | 25.12 | 0.573 |
-| GRU (log target) | 16.03 | 25.39 | 0.564 |
-| GRU (with lagged exogenous sensors) | 17.10 | 25.42 | 0.563 |
-| GRU (dropout=0.2) | 17.47 | 25.57 | 0.558 |
-| GRU (engineered v2 features) | 17.18 | 25.77 | 0.551 |
-| GRU (default) | 17.40 | 25.77 | 0.551 |
-| CNN-LSTM | 18.35 | 25.95 | 0.544 |
-| LSTM | 17.45 | 26.10 | 0.539 |
-| CNN-LSTM with Attention | 18.07 | 26.17 | 0.537 |
-| TCN | 19.55 | 27.33 | 0.495 |
+| Linear Regression (log target) | 13.70 | 22.69 | 0.655 |
+| XGBoost (36 features) | 16.45 | 22.78 | 0.652 |
+| CNN-LSTM (log target) | 16.18 | 25.30 | 0.568 |
+| CNN-LSTM (MSE) | 16.43 | 25.41 | 0.564 |
+| CNN-LSTM (extended patience) | 17.84 | 25.79 | 0.551 |
+| CNN-LSTM (batch_size=128) | 17.69 | 26.09 | 0.541 |
+| CNN-LSTM (engineered v2 features) | 18.60 | 26.25 | 0.535 |
+| CNN-LSTM (dropout=0.1) | 17.84 | 26.35 | 0.531 |
+| CNN-LSTM (default) | 19.86 | 26.87 | 0.513 |
+| CNN-LSTM (+ lagged exogenous sensors) | 21.06 | 27.49 | 0.490 |
+| CNN-LSTM (tuned hyperparameters) | 20.70 | 27.61 | 0.486 |
+| Random Forest | 20.74 | 27.71 | 0.486 |
+| LSTM | 20.43 | 28.11 | 0.467 |
+| TCN | 20.75 | 28.18 | 0.463 |
+| GRU | 21.63 | 28.88 | 0.437 |
+| CNN-LSTM with Attention | 21.95 | 29.63 | 0.406 |
 
 The full table is saved in `reports/final_results_table.csv`.
 
 ![RMSE across every model and optimization variant](figures/16_metrics_comparison.png){width=90%}
 
-Plotted rather than just tabulated, the same pattern is visible at a
-glance: every standalone deep learning variant, regardless of which
-hyperparameter got tuned (window, hidden size, layers, learning rate,
-batch size, dropout rate, loss function, patience, feature set, target
-transform), clusters between RMSE 25 and 27.3. Linear Regression, ARIMA,
-XGBoost, Linear Regression on a log target, Random Forest, and the
-Stacked model all sit in a distinctly better band between RMSE 21 and
-23.2. Nothing tested moved a standalone deep learning model out of the
-first cluster and into the second, only combining one with Linear
-Regression did.
+Plotted rather than just tabulated, the pattern is visible at a glance:
+the Stacked model and Linear Regression sit essentially tied at the top
+(RMSE 21.1-21.2), ARIMA and Linear Regression on a log target close
+behind (21.6-22.7), then a distinct gap down to XGBoost (22.8) and the
+full cluster of CNN-LSTM variants and other deep learning architectures
+(25.3-29.6). Of everything tried on CNN-LSTM standalone, only the
+log-transform and extended-patience experiments meaningfully closed part
+of that gap; nothing standalone reaches the top band. Only combining
+Linear Regression with a CNN-LSTM trained on its residuals gets there.
 
 \newpage
 
@@ -545,36 +562,43 @@ Regression did.
 The sequence window length was tuned first where each architecture was swept
 across candidate windows (24, 72, 144 steps) with a reduced training
 budget, then retrained at its best window with full epochs and patience.
-This "sweep then finalize" approach kept the total compute manageable,
-and all five architectures landed on 24 steps independently.
+This "sweep then finalize" approach kept the total compute manageable.
+Three architectures (CNN-LSTM, LSTM, GRU) landed on 72 steps, while TCN
+and CNN-LSTM with Attention landed on 24 steps.
 
-A proper hyperparameter search was run on GRU, since it was the
-strongest deep model. This was a random search over hidden size (32, 64,
-128), number of layers (1, 2), and learning rate (5e-4, 1e-3, 2e-3), with
-6 sampled configurations at a reduced budget, followed by a full-budget
-retrain of the best one, which turned out to be hidden size 128, 2 layers,
-and a learning rate of 2e-3.
+A proper hyperparameter search was run on CNN-LSTM, the strongest of the
+five deep models. This was a random search over hidden size (32, 64,
+128), CNN channel count (16, 32, 64), and learning rate (5e-4, 1e-3,
+2e-3) - CNN-LSTM's capacity is set by hidden size and channel count
+rather than a layer count the way GRU's is - with 6 sampled
+configurations at a reduced budget, followed by a full-budget retrain of
+the best one (hidden size 128, 32 channels, learning rate 2e-3). That
+configuration reached RMSE 27.61, slightly worse than the untuned default
+(26.87): the validation-loss winner from the search didn't turn out to
+generalize better on the test set here.
 
 For regularization spatial dropout was used at a rate of 0.2 across every
-recurrent and convolutional model, for the reasons covered in Model
-Design. For early stopping patience-based stopping was used with the best
-weights restored, and it was also tested as an extended-patience variant (patience
-of 20 over 100 epochs, compared to the default patience of 10 over 60
-epochs) explicitly, to check whether the models were simply cut off too
-early.
+recurrent and convolutional model by default, for the reasons covered in
+Model Design. For early stopping, patience-based stopping was used with
+the best weights restored, and it was also tested as an
+extended-patience variant (patience of 20 over 100 epochs, compared to
+the default patience of 10 over 60 epochs) explicitly, to check whether
+the models were simply cut off too early - this gave CNN-LSTM a
+meaningful improvement (RMSE 27.07 to 25.79, about 4.7% better).
 
 Batch size and dropout rate were tested separately too, since the brief
 lists batch size alongside learning rate/layers/neurons under
 hyperparameter tuning, and dropout rate under regularization, and neither
 had been touched by the search above. A sweep across batch sizes {32, 64,
-128, 256} on the default GRU found 32 as the best; finalized at full
-budget it reached RMSE 25.12, about 2.5% better than the batch_size=64
-default, a similar-sized effect to the hidden-size/layers/lr search. A
-separate sweep across dropout rates {0.1, 0.2, 0.3, 0.4, 0.5}, also on the
-default GRU, found that 0.2, the rate already locked in during Model
-Design, was the best of the five tested, so nothing needed to change
-there, the original choice held up under testing rather than being an
-unexamined default.
+128, 256} on the default CNN-LSTM found 128 as the best, a modest
+improvement (RMSE 26.87 to 26.09, about 2.9% better). A separate sweep
+across dropout rates {0.1, 0.2, 0.3, 0.4, 0.5}, also on the default
+CNN-LSTM, found that 0.1 does slightly better than the 0.2 rate locked in
+during Model Design (RMSE 26.87 to 26.35, about 1.9% better) - a
+plausible explanation is that the convolution layer already imposes some
+regularizing structure before the LSTM sees the sequence, so this
+architecture needs less additional dropout than a plain recurrent model
+would.
 
 ## Investigating Why Deep Learning Underperforms
 
@@ -583,76 +607,89 @@ a series of independent tests were run to figure out whether that gap could
 still be closed, or whether it reflects something real about the data.
 
 The first test was a raw-features-only ablation. All 11 of the
-`Appliances`-derived lag and rolling features were dropped, keeping only the other 21,
-and retrained GRU. Its R2 collapsed from 0.551 to -0.09, which is worse
-than just predicting the mean every time. That's a strong signal that
-almost all of the usable signal in this dataset is autoregressive.
+`Appliances`-derived lag and rolling features were dropped, keeping only
+the other 25, and retrained CNN-LSTM. Its R2 dropped from 0.51 to
+essentially zero (-0.001), barely better than predicting the mean every
+time. That's a strong signal that almost all of the usable signal in
+this dataset is autoregressive.
 
 Next ARIMA(2,1,2) was tested, using only the target's own history and no
-features at all. It reached an RMSE of 21.64 and R2 of 0.686, tying Linear
-Regression almost exactly. That told that the ceiling isn't specific to deep
-learning or to multivariate modeling generally, since a classical
-univariate model with none of the engineering effort gets to the same
-place.
+features at all. It reached an RMSE of 21.64 and R2 of 0.686, close
+behind Linear Regression and the Stacked model. That showed the ceiling
+isn't specific to deep learning or to multivariate modeling generally,
+since a classical univariate model with none of the engineering effort
+gets close to the same place.
 
-XGBoost was also tested on the same 32 features, since it's non-linear but
-not sequential. It reached RMSE 21.32 and R2 0.696, again tying Linear
-Regression. This suggests the non-linear interactions XGBoost can capture
-don't add much once `Appliances_lag1` is available as an input.
+XGBoost was also tested on the same 36 features, since it's non-linear but
+not sequential. It reached RMSE 22.78 and R2 0.652, clearly ahead of
+every standalone deep learning model but behind Linear Regression and
+ARIMA. Non-linear tree interactions still don't close the gap once
+`Appliances_lag1` is available as an input.
 
 Alongside this a VIF (variance inflation factor) analysis was run, since the
 pairwise correlation filter in feature selection can miss group-level
-multicollinearity. It found several features with severe collinearity,
-`Tdewpoint` at 186, `indoor_outdoor_delta` at 79, `heat_index_proxy` at 74,
-and `RH_out` at 69. This matters for how reliable Linear Regression's
-individual coefficients are to interpret, but it doesn't explain the
-accuracy gap, since these are exactly the weak-signal environmental
-features the ablation test already showed contribute very little.
+multicollinearity. It found several features with severe collinearity:
+`Tdewpoint` at 329, `indoor_outdoor_delta` at 151, `RH_out` at 115, and
+`heat_index_proxy` at 75, since several of the raw temperature sensors
+are highly correlated with each other and with `Tdewpoint`. This matters
+for how reliable Linear Regression's individual coefficients are to
+interpret, but it doesn't explain the accuracy gap, since these are
+exactly the weak-signal environmental features the ablation test already
+showed contribute very little.
 
-The hyperparameter search mentioned above gave GRU a real, if modest,
-improvement, where RMSE went from 25.77 down to 24.96, about a 3% reduction.
-So model capacity was a minor factor, just not the main one.
+Beyond the standard optimization levers already covered above (window,
+hyperparameter search, extended patience, batch size, dropout), three
+more targeted changes were tried on CNN-LSTM. An updated feature set
+(interaction terms between the lag-1 feature and time of day, a trimmed
+lag set, and composite indoor temperature/humidity features) reached
+RMSE 26.25, a real if modest improvement (about 3% better than the
+same-window Huber baseline of 27.07). A log-transform of the target had a
+mixed effect, as expected from the skew: it made Linear Regression
+noticeably worse (RMSE 21.25 to 22.69) but helped CNN-LSTM substantially
+(27.07 down to 25.30, about 6% better) - the single largest standalone
+improvement tried on this model. Adding lagged versions of the outdoor
+temperature and humidity sensors, to test for a delayed thermal-inertia
+effect, left CNN-LSTM slightly worse (27.07 to 27.49), no evidence of a
+useful signal there.
 
-Then an updated feature set (interaction terms between the lag-1
-feature and time of day, a trimmed lag set, and composite indoor
-temperature/humidity features) was tested, and it left RMSE basically unchanged at
-25.77. A log-transform of the target had a mixed effect where it made Linear
-Regression noticeably worse (RMSE went from 21.30 to 22.89) while helping
-GRU slightly (25.77 down to 25.39). And adding lagged versions of the
-outdoor temperature and humidity sensors, to test for a delayed
-thermal-inertia effect, brought GRU's RMSE down slightly to 25.42, about a
-1.3% improvement.
-
-The one experiment that actually changed the outcome was stacking. The architecture took
-Linear Regression's predictions, computed its residuals on the training
-set, and trained a GRU specifically to predict those residuals rather than
-the raw target. Combining the two predictions at test time brought RMSE
-down from 21.30 to 21.06 and R2 up from 0.696 to 0.700, actually beating
-Linear Regression outright.
+The last and most important experiment was stacking. The approach: is to fit
+Linear Regression, compute its residuals on the training set, and train a
+CNN-LSTM specifically to predict those residuals rather than the raw
+target, then combine both predictions at test time. This reaches RMSE
+21.08 and R2 0.700, the best result in this notebook, edging out Linear
+Regression alone (21.25, 0.698). The same approach with GRU instead of
+CNN-LSTM does not beat Linear Regression, which points to why this
+combination in particular works: the small amount of nonlinear structure
+left in Linear Regression's residuals seems to need an architecture with
+local pattern extraction ahead of its sequence model (CNN-LSTM's
+convolution layer feeding its LSTM) to be captured reliably, rather than
+being accessible to any recurrent architecture.
 
 Here's the summary of all nine tests:
 
 | # | Experiment | Result | What it tells |
 |---|---|---|---|
-| 1 | Raw-features-only ablation | GRU R2 drops from 0.551 to -0.09 | Nearly all the signal is autoregressive |
-| 2 | ARIMA(2,1,2), target history only | RMSE 21.64, R2 0.686, ties Linear Regression | The ceiling isn't specific to deep learning |
-| 3 | XGBoost, same 32 features | RMSE 21.32, R2 0.696, ties Linear Regression | Non-linear interactions don't add much once lag-1 is available |
+| 1 | Raw-features-only ablation | CNN-LSTM R2 drops from 0.51 to -0.001 | Nearly all the signal is autoregressive |
+| 2 | ARIMA(2,1,2), target history only | RMSE 21.64, R2 0.686, close behind the two leaders | The ceiling isn't specific to deep learning |
+| 3 | XGBoost, same 36 features | RMSE 22.78, R2 0.652, ahead of every DL model but behind the leaders | Non-linear interactions don't close the gap |
 | 4 | VIF analysis | Several features show severe multicollinearity | Affects interpretability, not accuracy |
-| 5 | GRU hyperparameter search | RMSE 25.77 to 24.96, about 3% better | Capacity was a small factor, not the main one |
-| 6 | Engineered feature set v2 | RMSE unchanged | Not a missing-combination problem |
-| 7 | Log-transformed target | Hurts Linear Regression, helps GRU slightly | Huber loss was already the better fix |
-| 8 | Lagged exogenous sensors | RMSE 25.77 to 25.42, about 1.3% better | Small and real, but not a gap-closer |
-| 9 | Stacking (Linear Regression plus GRU on residuals) | RMSE 21.30 to 21.06, beats Linear Regression | The one approach that actually wins |
+| 5 | CNN-LSTM hyperparameter search | RMSE 26.87 to 27.61 (slightly worse) | Validation-loss winner didn't generalize better |
+| 6 | Engineered feature set v2 | RMSE 27.07 to 26.25, about 3% better | A real but modest gain |
+| 7 | Log-transformed target | Hurts Linear Regression, helps CNN-LSTM by about 6% | The single biggest standalone lever tried |
+| 8 | Lagged exogenous sensors | RMSE 27.07 to 27.49 (slightly worse) | No useful thermal-inertia signal found |
+| 9 | Stacking (Linear Regression plus CNN-LSTM on residuals) | RMSE 21.25 to 21.08, beats Linear Regression | The one approach that closes the gap |
 
-Four different methods (the ablation test, ARIMA, XGBoost, and the shared
-ceiling across all five deep learning architectures) point to the same
+Three different methods (the ablation test, ARIMA, and the shared ceiling
+across the standalone deep learning architectures) point to the same
 conclusion from different angles: `Appliances` consumption at 10-minute
-resolution behaves close to a pure autoregressive process. No amount of
-extra feature engineering, added model capacity, or target transformation
-closed that gap for a standalone deep learning model. The one thing that
-did move the needle was combining Linear Regression with a GRU trained on
-its leftover errors, which tells me the right answer here is a hybrid
-model rather than a bigger single architecture.
+resolution behaves close to a pure autoregressive process, and no amount
+of extra feature engineering, added model capacity, or target
+transformation closes the gap for a standalone deep sequence model.
+What does close it, narrowly, is combining Linear Regression with a
+CNN-LSTM trained specifically on what Linear Regression gets wrong,
+rather than replacing Linear Regression outright. Linear Regression is
+still the best single model tested; the small additional gain from
+stacking is real but modest, about a 0.8% reduction in RMSE.
 
 \newpage
 
@@ -670,9 +707,10 @@ The target's skew of 3.39 shaped a lot of downstream decisions.
 Huber loss was chosen over MSE specifically because of it, and later tested that
 choice against an explicit log-transform of the target. The log-transform
 actually hurt Linear Regression, since it distorts the otherwise close to
-linear relationship between `Appliances_lag1` and the raw target, while
-only marginally helping GRU. That confirmed Huber loss was the better fix,
-at least for the linear model.
+linear relationship between `Appliances_lag1` and the raw target, even
+though it clearly helped CNN-LSTM (see Model Optimization). That confirmed
+Huber loss was the better fix specifically for the linear model, even
+though a log target turned out to be worth using for the deep model.
 
 Feature selection needed more than one method to trust. Random Forest
 importance ranked `Press_mm_hg` suspiciously high, and permutation
@@ -680,6 +718,43 @@ importance, which measures actual held-out performance impact rather than
 tree-impurity reduction, showed that ranking was an artifact and dropped
 it. If it was stopped after the Random Forest stage, a non-predictive feature
 would have made it into the final set.
+
+A more serious problem was found in that same Stage 4 permutation
+importance step, after a systematic audit of every function that touches
+train/test data. The audit checked every function in `src/data_preprocessing.py`,
+`src/feature_engineering.py`, and `src/train.py`, and found three places
+where the full dataset, rather than the training split alone, technically
+influenced a preprocessing decision. Two of them, the IQR outlier fence
+and the Stage 2 correlation-based pruning, were verified empirically to
+have zero practical effect: recomputing both using only the training
+split produced identical fence values and identical dropped features. The
+third, Stage 4 permutation importance, was different and real. It
+measured feature importance directly on the test set rather than a
+held-out validation split, letting the actual test set influence which
+features survived into the final model, then reusing that same test set
+to report every downstream metric, a genuine feature-selection leak.
+Fixing it (carving an 85/15 validation split from training data instead)
+changed the selected feature count from 32 to 36 and materially changed
+which second-tier features were kept. Every notebook from Feature
+Engineering onward was rerun after the fix. The practical impact turned
+out to be uneven. Random Forest and the Stacked model, the two results
+that had benefited most from the leak, both got noticeably worse once it
+was corrected, while Linear Regression and ARIMA barely moved, which is
+itself further evidence for how little the environmental features and
+their interactions matter next to the target's own autoregressive
+structure.
+
+Fixing Stage 4 also changed which deep learning architecture was
+strongest. CNN-LSTM overtook GRU on the corrected feature set. The
+optimization notebook's experiments (hyperparameter search, batch size
+and dropout sweeps, the log-transform and exogenous-lag tests, and the
+residual-stacking hybrid) all target whichever architecture is strongest,
+so all of them were retargeted from GRU to CNN-LSTM to match. That
+retargeting turned out to matter for one result specifically: stacking
+Linear Regression with a GRU on residuals does not beat Linear Regression,
+but stacking with CNN-LSTM does, by a small margin. Using the wrong
+"best" architecture for that experiment would have missed the only result
+in the whole notebook that actually improves on Linear Regression.
 
 Deep learning not beating the baseline could have easily been written off
 as a failure, but methods were tried to treat it as something worth investigating
@@ -712,22 +787,33 @@ the whole notebook from the top.
 
 # Conclusion
 
-The best model overall is the stacked hybrid, Linear Regression plus a GRU
-trained on its residuals, with MAE 13.45, RMSE 21.06, MAPE 17.18%, and R2
-0.700. It's the only model tested, that actually beats plain Linear
-Regression, and by extension the strongest result to come out of this
-project.
+The best model overall is a hybrid. Linear Regression, followed by a
+CNN-LSTM trained on Linear Regression's own residuals, with both
+predictions combined at test time. It reaches MAE 13.52, RMSE 21.08, and
+R2 0.700, a small but real improvement over plain Linear Regression alone
+(13.60, 21.25, 0.698), which is itself the strongest single model tested,
+ahead of all five deep learning architectures, a classical ARIMA model,
+and a gradient-boosted tree ensemble. The margin the hybrid wins by is
+narrow, about a 0.8% reduction in RMSE, but it is a genuine result:
+stacking with GRU instead of CNN-LSTM does not produce the same win,
+which suggests the small amount of nonlinear structure left in Linear
+Regression's residuals specifically needs an architecture that extracts
+local patterns before modeling the sequence, not just any recurrent
+model.
 
 The key finding is that `Appliances` consumption at 10-minute resolution
 behaves close to a pure autoregressive process. This must not be claimed
-from a single result, so it was checked four separate ways. A raw-features
-ablation that collapses to an R2 of -0.09 without the target's own lag and
-rolling history, a univariate ARIMA model with no feature engineering at
-all that ties Linear Regression, a non-sequential gradient-boosted model
-(XGBoost) on the same features that also ties Linear Regression, and a
-shared performance ceiling across all five deep learning architectures
-that neither more capacity, better features, nor a target transformation
-meaningfully closes.
+from a single result, so it was checked several separate ways. A
+raw-features ablation that drops to an R2 of roughly zero without the
+target's own lag and rolling history, a univariate ARIMA model with no
+feature engineering at all that lands close behind the two leaders, a
+non-sequential gradient-boosted model (XGBoost) on the same features that
+still trails both, and a shared performance ceiling across all five
+standalone deep learning architectures that neither more capacity, better
+features, nor a target transformation meaningfully closes. The one thing
+that does close the remaining gap is combining Linear Regression with a
+model built specifically to learn what it gets wrong, not a bigger or
+better-tuned version of Linear Regression's replacement.
 
 But it cannot be concluded that the deep learning side of the project failed.
 The training curves show healthy convergence with no overfitting,
@@ -736,11 +822,12 @@ was run rather than just tweaking numbers by hand. It's more a property of this
 specific dataset at this specific resolution. With a dominant AR(1) signal
 and fairly weak correlation from the environmental sensors, a closed-form
 linear fit on `Appliances_lag1` is hard to beat by learning the same
-relationship through gradient descent on around 13,300 training rows. The
-one thing that did beat Linear Regression combined it with a deep model
-instead of replacing it, which tells that there's a small amount of
-exploitable non-linear structure in this data, just not enough on its own
-to justify a standalone deep architecture.
+relationship through gradient descent on around 13,300 training rows.
+The one approach built specifically to exploit any leftover nonlinear
+structure, stacking a CNN-LSTM on Linear Regression's residuals, does
+manage a small improvement, which is itself informative: there is a
+real, if modest, amount of signal left over that a purely linear model
+cannot reach on its own.
 
 A few things that should be tried if kept working on this:
 
@@ -750,13 +837,15 @@ a modest sample for a deep sequence model. A longer collection period
 might let the extra capacity of the deep models actually pay off.
 
 An attempt was made on seasonal ARIMA/SARIMAX model at the daily period (144 steps)
-but found it too slow to run at this dataset's scale within the time had.
+but found it too slow to run at this dataset's scale within the time and computation power had.
 It would be worth revisiting with a faster implementation.
 
-The stacked model here uses a single GRU on Linear Regression's residuals.
-A small ensemble of residual models, maybe averaging a GRU and an XGBoost
-residual corrector, might squeeze out a bit more of the remaining
-non-linear signal.
+The stacking approach beats Linear Regression by a narrow margin, and it's
+worth being honest that a narrow win on one held-out test set doesn't fully
+settle the question of how much genuine nonlinear residual structure
+exists. A more careful residual model, with cross-validated stacking
+rather than a single train/test split, would give a more confident answer
+either way.
 
 It would be also better to properly test the holiday and special-event features the
 brief suggests, using a verified calendar for the house's location and
@@ -794,9 +883,9 @@ structure that the aggregate `Appliances` reading hides completely.
 
 ---
 
-*AI tools declaration: I used Claude (Anthropic) during this assessment for
+*AI tools declaration: I used Claude during this assessment for
 architecture planning, code structure and docstring guidance, debugging
 (including tracking down the PyTorch/XGBoost crash described in Challenges
-and Solutions), and running the optimization experiments in
+and Solutions), and planning the optimization experiments in
 `notebooks/05_Optimization_Evaluation.ipynb`. I reviewed and understood
 every implementation, analysis, and final decision myself with proper justifications.*

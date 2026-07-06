@@ -25,10 +25,11 @@ Seven models are implemented and compared:
 | TCN (Temporal Convolutional Network) | Initiative addition |
 | CNN-LSTM with Attention | Primary model - initiative addition |
 
-An eighth model - Linear Regression + GRU stacked on its residuals - was
-added during optimization (notebook 05) after discovering it was the only
-approach that beat the Linear Regression baseline outright. See
-"Further Optimization & Ceiling Analysis" below.
+An eighth model - Linear Regression + CNN-LSTM stacked on its residuals -
+was added during optimization (notebook 05) to test whether any
+nonlinear residual signal was being left on the table. It is the best
+model overall, edging out Linear Regression alone by a small margin. See
+"Further Optimization & Ceiling Analysis" below for the full comparison.
 
 ---
 
@@ -140,14 +141,15 @@ from `data_preprocessing.py`, `feature_engineering.py`, `model.py`, and
 
 | Model | MAE (Wh) | RMSE (Wh) | MAPE (%) | R² |
 |---|---|---|---|---|
-| Linear Regression | 13.51 | 21.30 | 17.61 | 0.696 |
-| Random Forest | 16.54 | 23.18 | 21.93 | 0.640 |
-| GRU | 17.40 | 25.77 | 22.00 | 0.551 |
-| CNN-LSTM | 18.35 | 25.95 | 24.49 | 0.544 |
-| LSTM | 17.45 | 26.10 | 22.27 | 0.539 |
-| CNN-LSTM + Attention | 18.07 | 26.17 | 23.56 | 0.537 |
-| TCN | 19.55 | 27.33 | 26.19 | 0.495 |
+| Linear Regression | 13.60 | 21.25 | 17.77 | 0.698 |
+| CNN-LSTM | 19.86 | 26.87 | 27.15 | 0.513 |
+| Random Forest | 20.74 | 27.71 | 27.28 | 0.486 |
+| LSTM | 20.43 | 28.11 | 27.97 | 0.467 |
+| TCN | 20.75 | 28.18 | 28.41 | 0.463 |
+| GRU | 21.63 | 28.88 | 29.92 | 0.437 |
+| CNN-LSTM + Attention | 21.95 | 29.63 | 29.99 | 0.406 |
 
+CNN-LSTM is the strongest standalone deep learning model.
 Full table with every optimization/ablation variant:
 [`reports/final_results_table.csv`](reports/final_results_table.csv).
 
@@ -155,30 +157,35 @@ Full table with every optimization/ablation variant:
 
 ## Further Optimization & Ceiling Analysis
 
-Linear Regression outperforming every deep learning architecture is a
-genuine, investigated finding, not an unaddressed weakness. Notebook 05
-(sections 9-17) runs a battery of independent tests to determine whether
-that gap is fixable or a real ceiling set by the data:
+Linear Regression outperforming every standalone deep learning
+architecture is a genuine, investigated finding, not an unaddressed
+weakness. Notebook 05 runs a battery of independent tests to determine
+whether that gap is fixable or a real ceiling set by the data:
 
 | Test | Result | Verdict |
 |---|---|---|
-| Raw-features-only ablation | GRU R² collapses to **-0.09** without the target's own lag/rolling features | Almost all signal is autoregressive |
-| ARIMA(2,1,2), target history only | RMSE 21.64, R² 0.686 - ties Linear Regression | Ceiling isn't specific to the DL architectures |
-| XGBoost, same 32 features | RMSE 21.32, R² 0.696 - ties Linear Regression | Nonlinear interactions add little once `Appliances_lag1` is available |
-| GRU hyperparameter random search | RMSE 25.77 → 24.96 (~3%) | Capacity was a minor factor, not the main one |
-| Engineered feature set v2 (interactions, trimmed lags, composites) | RMSE unchanged (25.77) | Neutral |
-| Log-transformed target | Hurts Linear Regression (21.30→22.89), helps GRU slightly (25.77→25.39) | Huber loss was already the better fix for skew |
-| Lagged exogenous sensors (thermal inertia) | RMSE 25.77 → 25.42 (~1%) | Small, real, not a gap-closer |
-| **Stacking: Linear Regression + GRU on residuals** | **RMSE 21.06, R² 0.6999 - beats Linear Regression** | **The one approach that actually wins** |
+| Raw-features-only ablation | CNN-LSTM R² drops to **-0.001** without the target's own lag/rolling features | Almost all signal is autoregressive |
+| ARIMA(2,1,2), target history only | RMSE 21.64, R² 0.686 - close behind the two leaders | Ceiling isn't specific to the DL architectures |
+| XGBoost, same 36 features | RMSE 22.78, R² 0.652 - ahead of every DL model but behind the leaders | Nonlinear interactions don't close the gap once `Appliances_lag1` is available |
+| VIF analysis | Several features show severe multicollinearity (`Tdewpoint` 329, `indoor_outdoor_delta` 151) | Affects interpretability, not accuracy |
+| CNN-LSTM hyperparameter random search | RMSE 26.87 → 27.61 (slightly worse) | Validation-loss winner didn't generalize better here |
+| Extended patience | RMSE 27.07 → 25.79 (~4.7% better) | A real, if modest, training-budget effect |
+| Batch size sweep {32,64,128,256} | Winner 128: RMSE 26.87 → 26.09 (~2.9% better) | Small, real improvement |
+| Dropout sweep {0.1-0.5} | Winner 0.1: RMSE 26.87 → 26.35 (~1.9% better) | CNN-LSTM needs less dropout than GRU did |
+| Engineered feature set v2 (interactions, trimmed lags, composites) | RMSE 27.07 → 26.25 (~3% better) | A real, modest gain |
+| Log-transformed target | Hurts Linear Regression (21.25→22.69), helps CNN-LSTM substantially (27.07→25.30, ~6%) | The single biggest standalone lever tried |
+| Lagged exogenous sensors (thermal inertia) | RMSE 27.07 → 27.49 (slightly worse) | No useful signal found |
+| **Stacking: Linear Regression + CNN-LSTM on residuals** | **RMSE 21.08, R² 0.700 - beats Linear Regression** | **The one approach that closes the gap** |
 
-Four independent methods (ARIMA, XGBoost, the raw-features ablation, and
-the shared ceiling across all 5 DL architectures) converge on the same
-conclusion: `Appliances` at 10-minute resolution is close to a pure
-autoregressive process. No amount of extra feature engineering, model
+Three independent methods (the raw-features ablation, ARIMA, and the
+shared ceiling across all 5 standalone DL architectures) converge on the
+same conclusion: `Appliances` at 10-minute resolution is close to a pure
+autoregressive process, and no amount of extra feature engineering, added
 capacity, or target transformation closes the gap for a standalone deep
-sequence model - full details and numbers in `notebooks/05_Optimization_Evaluation.ipynb`.
-The one genuine win came from **combining** Linear Regression with a GRU
-to correct its residuals, not from replacing it with a bigger model.
+sequence model. What does close it, by a narrow margin (about 0.8% lower
+RMSE), is combining Linear Regression with a CNN-LSTM trained
+specifically on its residuals - full details and numbers in
+`notebooks/05_Optimization_Evaluation.ipynb`.
 
 ---
 
@@ -200,7 +207,7 @@ keep it out of any process that also imports torch.
 
 ## AI Tools Declaration
 
-Claude (Anthropic) was used during this assessment for:
+Claude was used during this assessment for:
 - Architecture planning and design decisions
 - Code structure and docstring guidance
 - Debugging and review

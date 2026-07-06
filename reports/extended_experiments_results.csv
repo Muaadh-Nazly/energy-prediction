@@ -1,9 +1,9 @@
 model,MAE,RMSE,MAPE,R2
-GRU (engineered v2: interactions + trimmed + composites),17.1842,25.7658,21.7485,0.5509
+CNN-LSTM (engineered v2: interactions + trimmed + composites),18.6042,26.2507,24.8753,0.535
 "ARIMA(2,1,2) one-step-ahead",13.3717,21.6352,17.3132,0.6864
-"XGBoost (flat, 32 features)",14.0911,21.3218,18.4865,0.6955
-GRU (tuned hyperparameters),16.7703,24.9641,21.3771,0.5784
-Stacked (LR + GRU-on-residuals),13.4508,21.0623,17.1777,0.6999
-Linear Regression (log target),13.7459,22.887,17.6045,0.6491
-GRU (log target),16.0255,25.3911,19.2192,0.5639
-GRU (+ lagged exogenous sensors),17.1016,25.4197,21.7298,0.5629
+"XGBoost (flat, 32 features)",16.4492,22.7804,22.2317,0.6524
+CNN-LSTM (tuned hyperparameters),20.6963,27.6099,28.3514,0.4856
+Stacked (LR + CNN-LSTM-on-residuals),13.5223,21.0804,17.7902,0.7001
+Linear Regression (log target),13.702,22.6933,17.5608,0.655
+CNN-LSTM (log target),16.1775,25.3026,19.6337,0.568
+CNN-LSTM (+ lagged exogenous sensors),21.0581,27.4901,29.7005,0.49
